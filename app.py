@@ -365,26 +365,31 @@
 
 
 
-
 import os
 import base64
-from flask import Flask, render_template, request
+from flask import Flask, request, jsonify  # ✅ jsonify missing in original
 from werkzeug.utils import secure_filename
 from groq import Groq
 import markdown
 from markupsafe import Markup
-from deep_translator import GoogleTranslator  # ✅ सही import
+from deep_translator import GoogleTranslator
+from flask_cors import CORS  # ✅ CORS import
 
 UPLOAD_FOLDER = "uploads"
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "dicom"}
 MAX_FILE_SIZE = 100 * 1024  # 100 KB
 
 app = Flask(__name__)
+CORS(app)  # ✅ Allow all origins (React frontend can call API)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def encode_image(image_file):
+    image_file.seek(0)
+    return base64.b64encode(image_file.read()).decode("utf-8")
 
 # Medical analysis prompt
 MEDICAL_QUERY = """
@@ -412,14 +417,10 @@ Your task is to analyze this image and respond with the following structured inf
 "This is an AI-generated analysis based on the image. Please consult a qualified medical professional for an accurate diagnosis and treatment plan."
 """
 
-def encode_image(image_path):
-    with open(image_path, "rb") as img_file:
-        return base64.b64encode(img_file.read()).decode('utf-8')
-
 @app.route("/analyze", methods=["POST"])
 def analyze():
     groq_api_key = request.form.get("groq_api_key", "").strip()
-    lang = request.form.get("lang", "en")  # MERN frontend से आएगा
+    lang = request.form.get("lang", "en")
 
     if not groq_api_key:
         return jsonify({"error": "Groq API Key is required."}), 400
@@ -441,7 +442,6 @@ def analyze():
         base64_image = encode_image(file)
 
         client = Groq(api_key=groq_api_key)
-
         chat_completion = client.chat.completions.create(
             messages=[
                 {
@@ -457,7 +457,6 @@ def analyze():
 
         result_text = chat_completion.choices[0].message.content
 
-        # Translate result if not English
         if lang != "en":
             translator = GoogleTranslator(source="auto", target=lang)
             result_text = translator.translate(result_text)
@@ -469,4 +468,10 @@ def analyze():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=True)
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+
     app.run(host="0.0.0.0", port=port, debug=True)
